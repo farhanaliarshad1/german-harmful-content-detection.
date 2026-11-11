@@ -73,87 +73,29 @@ All three corpora are **German**. Details and download instructions: [`data/READ
 
 ### End-to-end system
 
-```mermaid
-flowchart LR
-    subgraph DATA["1 · Data"]
-        D1[("DeFaktS<br/>📰 fake news")]
-        D2[("GAHD<br/>🚫 hate speech")]
-        D3[("DeTox / GermEval<br/>☣️ toxicity")]
-        D4[("Merged corpus<br/>15k · labels or -1")]
-        D1 & D2 & D3 --> D4
-    end
+<p align="center">
+  <img src="assets/architecture_end_to_end.png" alt="End-to-end architecture: DeFaktS, GAHD and DeTox feed individual models and a unified multi-task model; prompting with any transformer model; evaluation with accuracy, precision, recall and F1; predictions served in a Streamlit UI" width="900">
+</p>
 
-    subgraph PREP["2 · Preprocessing (leakage-safe)"]
-        P1["Light cleaning<br/>HTML unescape · URL→[URL]<br/>@mention→@user · keep case & emoji"]
-        P2["De-duplicate &<br/>drop label conflicts"]
-        P3["Stratified split<br/>train / val / test"]
-        P4["Balance TRAIN only<br/>class weights or oversampling"]
-        P1 --> P2 --> P3 --> P4
-    end
+The three German corpora (**DeFaktS**, **GAHD**, **DeTox**) go through tokenization and data preparation. From there, three paths are trained and evaluated side by side:
 
-    subgraph MODELS["3 · Modelling paradigms"]
-        M1["① Single-task encoders<br/>DistilBERT-de · XLM-R · mBERT"]
-        M2["② Unified multi-task BERT<br/>shared encoder + 3 heads"]
-        M3["③ Unified (m)T5<br/>task-prefixed text-to-text"]
-        M4["④ LLM prompting<br/>zero-/few-shot<br/>Llama · Mistral · Phi · GPT-4o-mini"]
-    end
+- **Individual models:** one transformer per dataset.
+- **Unified multi-task model:** trained on the combined dataset.
+- **Prompting:** any transformer LLM, no training needed.
 
-    subgraph EVAL["4 · Evaluation"]
-        E1["Accuracy · Precision<br/>Recall · F1 · Macro-F1<br/>per task"]
-        E2["SHAP word<br/>attributions"]
-        E3["Adversarial<br/>error analysis"]
-    end
+All paths are scored with the same metrics (accuracy, precision, recall, F1). In the system design, the multi-task model's predictions are shown in a locally hosted **Streamlit** UI.
 
-    D1 & D2 & D3 --> P1
-    D4 --> P1
-    P4 --> M1 & M2 & M3
-    P2 --> M4
-    M1 & M2 & M3 & M4 --> E1
-    M1 & M2 --> E2
-    E1 --> E3
-```
+### Individual (single-task) models
 
-### ① Single-task classifier (one per harm)
+<p align="center">
+  <img src="assets/architecture_individual_models.png" alt="Individual model workflow: raw data sources, preprocessing pipeline, model architecture (XLM-RoBERTa, DistilBERT-German-cased, multilingual BERT), training configuration and model saving" width="850">
+</p>
 
-```mermaid
-flowchart TB
-    T["German post"] --> C["clean_text()<br/>[URL] · @user · whitespace"]
-    C --> TK["Tokenizer<br/>WordPiece / SentencePiece · max 128 · dynamic padding"]
-    TK --> ENC{{"Task-specific encoder"}}
-    ENC -->|"📰 fake news"| E1["DistilBERT-base-german-cased<br/>6 layers · 66M"]
-    ENC -->|"🚫 hate speech"| E2["XLM-RoBERTa-base<br/>12 layers · 270M · 100 languages"]
-    ENC -->|"☣️ toxicity"| E3["mBERT-base-cased<br/>12 layers · 178M"]
-    E1 & E2 & E3 --> HEAD["[CLS] → Dropout → Linear(768→2) → Softmax"]
-    HEAD --> OUT{{"harmful / not harmful"}}
-    HEAD -. training .-> LOSS["Class-weighted cross-entropy<br/>AdamW · warmup + cosine LR<br/>early stopping on validation F1"]
-```
+### Unified multi-task model
 
-### ② Unified multi-task BERT
-
-```mermaid
-flowchart TB
-    X["German post"] --> E["Shared encoder<br/>bert-base-german-cased"]
-    E --> H["[CLS] → Dropout(0.3)"]
-    H --> F["📰 Fake-news head<br/>sigmoid"]
-    H --> HS["🚫 Hate-speech head<br/>sigmoid"]
-    H --> TX["☣️ Toxicity head<br/>sigmoid"]
-    F & HS & TX --> L["Masked BCE<br/>loss per task only on rows labelled for it (≠ -1)<br/>averaged over tasks present in the batch"]
-```
-
-### ③ Unified text-to-text and ④ LLM prompting
-
-```mermaid
-flowchart LR
-    subgraph T5["③ Task-prefixed (m)T5"]
-        A1["'hate_speech: Diese Minderheit …'"] --> A2["mT5 encoder-decoder"] --> A3["'1'"]
-    end
-    subgraph LLM["④ LLM prompting"]
-        B1["System prompt<br/>criteria for 3 tasks + overlap rules"] --> B3["LLM"]
-        B2["German few-shot examples"] --> B3
-        B4["Post"] --> B3
-        B3 --> B5["'0,1,1'<br/>fake · hate · toxic"]
-    end
-```
+<p align="center">
+  <img src="assets/architecture_unified_model.png" alt="Unified model workflow: data preparation, text processing, multi-task model with a shared BERT encoder and task-specific heads for fake news, hate speech and toxicity, training loop, evaluation and model saving" width="900">
+</p>
 
 ---
 
@@ -266,35 +208,6 @@ Every run writes `metrics.json` (config, split sizes, test metrics, confusion ma
 
 ---
 
-## 📁 Project structure
-
-```
-german-harmful-content-detection/
-├── configs/
-│   ├── fake_news_distilbert.yaml    # 📰 DeFaktS  · DistilBERT-German
-│   ├── hate_speech_xlmr.yaml        # 🚫 GAHD     · XLM-RoBERTa
-│   └── toxicity_mbert.yaml          # ☣️ DeTox    · mBERT
-├── src/harmdetect/
-│   ├── data.py          # cleaning, de-dup, leakage-safe split, train-only balancing
-│   ├── modeling.py      # dataset, class-weighted Trainer, metrics
-│   ├── config.py        # typed YAML config
-│   ├── train.py         # ① single-task fine-tuning CLI
-│   ├── multitask.py     # ② shared-encoder BERT, 3 heads, masked BCE
-│   ├── t5_unified.py    # ③ task-prefixed mT5
-│   ├── prompts.py       # ④ German three-task zero-/few-shot prompt
-│   ├── llm_baseline.py  # ④ async, resumable LLM evaluation
-│   ├── predict.py       # inference on text / CSV (any task)
-│   └── explain.py       # SHAP word-level attributions (any task)
-├── notebooks/           # original experiments: 01–03 training, 04–07 SHAP
-├── tests/               # pytest: cleaning, leakage, parsing, masked loss, T5 targets
-├── docs/
-│   ├── review_paper.pdf / .docx / .md   # 📄 8-page review paper
-│   └── research_proposal.docx
-└── data/README.md       # dataset sources and schema
-```
-
----
-
 ## 🧭 Future work
 
 - Re-run all single-task models with the leakage-safe pipeline and report mean ± std over seeds.
@@ -304,7 +217,7 @@ german-harmful-content-detection/
 
 ## 🙏 Acknowledgements
 
-Developed as a **Research Case Study** in the M.Sc. Natural Language Processing programme at **Universität Trier** (TWON Metrics, WS 2024/25), together with fellow students Aastha Shreya, Shivang Sinha, Syed Huzaifa Ali, Donya Sheikhi and Muhammad Ahmed ([original course repository](https://github.com/Aastha031295/TWON_Metrics)). Open-model inference used the university's LLM service.
+Developed as a **Research Case Study** in the M.Sc. Natural Language Processing programme at **Universität Trier** (TWON Metrics, WS 2024/25), together with fellow students Aastha Shreya, Shivang Sinha, Syed Huzaifa Ali, Donya Sheikhi and Muhammad Ahmed. Open-model inference used the university's LLM service.
 
 ## 📚 References
 
