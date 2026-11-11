@@ -8,7 +8,7 @@ M.Sc. Natural Language Processing, Universität Trier
 
 ## Abstract
 
-Online disinformation, hate speech and toxicity are usually tackled by separate classifiers, even though the three phenomena co-occur and share linguistic signals. This paper reviews the main modelling paradigms for these tasks: fine-tuned encoders, multi-task learning, text-to-text models and prompted large language models (LLMs). It grounds the review in a case study on German social media text. We compare (i) three single-task encoders (DistilBERT-German, XLM-RoBERTa and multilingual BERT), each fine-tuned on one dataset, (ii) a unified multi-task BERT with a shared encoder and task-specific heads, (iii) a unified T5 model that generates all three labels as text, and (iv) zero- and few-shot prompting of open and commercial LLMs. The datasets are DeFaktS (disinformation), GAHD (adversarial hate speech) and DeTox/GermEval (toxicity). Single-task models gave the best fake-news result (91% accuracy). The unified model was best on toxicity (91%) and close on hate speech (76% vs. 78%) while needing one encoder instead of three. Few-shot GPT-4o-mini matched the encoders on hate speech (79%) but lagged far behind on fake news (59%). We analyse why: DeFaktS encodes *framing* rather than factual falsity, so models learn stylistic cues, a reading confirmed by SHAP attributions and adversarial error analysis. We also document three methodological pitfalls found when re-implementing the pipeline: oversampling before splitting, model selection on the test set, and naive text-to-text handling of missing labels. We argue that they matter as much as the choice of architecture.
+Online disinformation, hate speech and toxicity are usually tackled by separate classifiers, even though the three phenomena co-occur and share linguistic signals. This paper reviews the main modelling paradigms for these tasks: fine-tuned encoders, multi-task learning, text-to-text models and prompted large language models (LLMs). It grounds the review in a case study on German social media text. We compare (i) three single-task encoders (DistilBERT-German, XLM-RoBERTa and multilingual BERT), each fine-tuned on one dataset, (ii) a unified multi-task BERT with a shared encoder and task-specific heads, (iii) a unified T5 model that generates all three labels as text, and (iv) zero- and few-shot prompting of open and commercial LLMs. The datasets are DeFaktS (disinformation), GAHD (adversarial hate speech) and DeTox/GermEval (toxicity). Single-task models gave the best fake-news result (91% accuracy). The unified model was best on toxicity (91%) and close on hate speech (76% vs. 78%) while needing one encoder instead of three. Few-shot GPT-4o-mini matched the encoders on hate speech (79%) but lagged far behind on fake news (59%). SHAP attributions and adversarial probing reveal dataset-specific shortcuts in all three tasks. The fake-news model keys on political framing words, because DeFaktS encodes *framing* rather than factual falsity. The toxicity model keys on topic words such as *„Querdenker“*. The hate-speech model spreads weak evidence over many tokens when faced with GAHD's implicit, adversarial hate. We also document methodological pitfalls found when re-implementing the pipeline: oversampling before splitting, model selection on the test set, destructive text cleaning, and naive text-to-text handling of missing labels. We argue that they matter as much as the choice of architecture.
 
 **Keywords:** fake news detection, hate speech, toxicity, multi-task learning, BERT, T5, large language models, German NLP, explainability, data leakage
 
@@ -77,7 +77,9 @@ Moderation decisions affect speech, so explanations matter for trust and debuggi
 
 *Table 1: Datasets. In the unified corpus each row carries one real label; the other two are set to −1 ("not annotated").*
 
-**Preprocessing.** The text was normalised: HTML entities unescaped, URLs replaced by a `[URL]` token, user mentions anonymised, whitespace collapsed. Labels were cast to integers, rows with missing values dropped, and the classes balanced. Casing was kept because the German models are cased, and German capitalises all nouns, so case carries information.
+**The three corpora.** *DeFaktS* tweets are short, topical (politics, climate, the 2021 Ahr flood, COVID-19) and full of hashtags and links; a "fake" label marks a post that uses disinformation framing. *GAHD* was collected over four rounds of human-versus-model adversarial writing. Its hateful examples are often implicit, for example *„Ich mag Sterne. Morgensterne, Abendsterne, Filmsternchen … Nur Judensterne nicht“*, and its non-hateful examples deliberately mention identity groups (*„Ich liebe Inder“*), so identity terms alone are not predictive. The *DeTox/GermEval* comments are long, heated replies from news and political discussions. Rude language (*„Scheißland“*, *„bekloppt“*) appears in both classes, which makes the toxic/non-toxic boundary fuzzy.
+
+**Preprocessing.** In the original experiments, DeFaktS URLs were replaced by a `[URL]` token, and DeTox rows with missing text or labels were dropped. GAHD was lowercased and stripped of all digits, punctuation and emojis. The unified corpus additionally had e-mail addresses removed and emojis replaced. Minority classes were upsampled for DeFaktS and GAHD. The corrected pipeline applies the same *light* cleaning to every task: HTML unescaping, `[URL]` and `@user` placeholders, and whitespace normalisation. It keeps case (German capitalises all nouns), punctuation and emojis, because these carry signal such as sarcasm markers (🤥) in hate speech.
 
 **Heterogeneity.** The three sources differ in genre, time period, annotation guidelines and length. GAHD's adversarial examples are deliberately subtle, while DeFaktS tweets are short, topical and full of hashtags and links. In the merged corpus, a model can partly infer *which dataset* a post comes from by its style, a shortcut we return to in Section 6.
 
@@ -90,8 +92,8 @@ Moderation decisions affect speech, so explanations matter for trust and debuggi
 One encoder was fine-tuned per task, each with a linear classification head on the `[CLS]` representation:
 
 - **Fake news:** `distilbert-base-german-cased` with class-weighted cross-entropy, dropout regularisation, learning rate 3e-5, weight decay, a cosine learning-rate schedule with warm-up, up to 5 epochs, and early stopping on F1.
-- **Hate speech:** `xlm-roberta-base`, learning rate 3e-5, 5 epochs, with minority-class upsampling.
-- **Toxicity:** `bert-base-multilingual-cased`, a small learning rate (5e-6), and 10 epochs.
+- **Hate speech:** `xlm-roberta-base` (SentencePiece vocabulary covering 100 languages), learning rate 3e-5, weight decay 0.01, batch size 16, 5 epochs, with minority-class upsampling.
+- **Toxicity:** `bert-base-multilingual-cased` with dropout raised to 0.2 (hidden and attention layers), a small learning rate (5e-6) with 500 warm-up steps, batch size 32, up to 10 epochs, and early stopping. The low learning rate proved the most stable setting for mBERT on noisy, long comments.
 
 All inputs were truncated to 128 tokens.
 
@@ -111,7 +113,7 @@ We evaluated Llama-3.1-8B and Llama-3.3-70B, Mistral-7B and Phi-4 (6-bit quantis
 
 ### 4.5 Explainability and error analysis
 
-We applied SHAP with a text masker to the fake-news classifier, on hand-written and test-set posts, and aggregated token attributions into a feature-importance ranking. We also tested the unified model on hand-written adversarial German posts that separate factual falsity, hostility and group-targeting.
+We applied SHAP with a text masker to all three single-task classifiers (fake news, hate speech, toxicity) and to the unified model, on hand-written and test-set posts, and aggregated token attributions into feature-importance rankings. We also tested the unified model on hand-written adversarial German posts that separate factual falsity, hostility and group-targeting.
 
 ### 4.6 Metrics
 
@@ -126,8 +128,8 @@ We report accuracy, precision, recall and F1. For the binary tasks, F1 refers to
 | Model | Task | Precision | Recall | F1 | Accuracy |
 |---|---|---|---|---|---|
 | DistilBERT-German (single) | Fake news | 90% | 91% | 91% | **91.0%** |
-| XLM-R (single) | Hate speech | 79% | 78% | 77% | 78.1% |
-| mBERT (single) | Toxicity | 88% | 88% | 88% | 88.0% |
+| XLM-R (single) | Hate speech | 79% | 78% | 77.9% | 78.1% |
+| mBERT (single) | Toxicity | 88.7% | 88.7% | 88.7% | 88.7% |
 | Unified BERT | Fake news | 81% | 84% | —¹ | 85.0% |
 | Unified BERT | Hate speech | 76% | 73% | 74% | 76.0% |
 | Unified BERT | Toxicity | 90% | 89% | 90% | **91.0%** |
@@ -137,7 +139,7 @@ We report accuracy, precision, recall and F1. For the binary tasks, F1 refers to
 
 *Table 2: Fine-tuned models on held-out test data. ¹The originally reported F1 of 85% cannot be correct, since F1 is the harmonic mean of precision and recall and cannot exceed both. We therefore report accuracy for this cell.*
 
-The answer to RQ1 depends on the task. **Fake news** clearly favours the specialist (91% vs. 85%). **Toxicity** favours the unified model (+3 points). **Hate speech** is nearly tied (78% vs. 76%). Averaged over the three tasks, the single-task models score 85.7% and the unified BERT 84.0%: a 1.7-point gap, in exchange for running one encoder instead of three.
+The answer to RQ1 depends on the task. **Fake news** clearly favours the specialist (91% vs. 85%). **Toxicity** favours the unified model (91% vs. 88.7%). **Hate speech** is nearly tied (78% vs. 76%) and is the hardest task for every fine-tuned model. Averaged over the three tasks, the single-task models score 85.9% and the unified BERT 84.0%: a 1.9-point gap, in exchange for running one encoder instead of three.
 
 ### 5.2 Prompted LLMs (RQ3)
 
@@ -158,16 +160,24 @@ Three patterns stand out. First, **scale helps**: Llama 70B beats Llama 8B by 9 
 
 | Paradigm | Fake news | Hate speech | Toxicity | Training data | Inference cost |
 |---|---|---|---|---|---|
-| Best single-task encoder | **91.0%** | 78.1% | 88% | per task | 3 models |
+| Best single-task encoder | **91.0%** | 78.1% | 88.7% | per task | 3 models |
 | Unified multi-task BERT | 85% | 76% | **91%** | merged | 1 model |
 | Unified T5 | 73% | 68% | 51% | merged | 1 model, generative |
 | Best prompted LLM | 60% | **79%** | 78% | none / few-shot | large model per post |
 
 *Table 4: Best accuracy per paradigm.*
 
-### 5.4 What does the fake-news model learn?
+### 5.4 What do the models learn? SHAP and adversarial analysis
 
-SHAP attributions for the DistilBERT fake-news model rank tokens such as *„trigger“* and *„liberal“* (along with several sub-word fragments) as the strongest contributors to the "fake" class. These are words of **political framing**, not markers of factual error. The adversarial tests point the same way:
+SHAP was applied to each single-task model on random test posts and to the unified model on one post per task.
+
+**Fake news.** For the DistilBERT model, the strongest contributors to the "fake" class are tokens such as *„trigger“* and *„liberal“* (plus several sub-word fragments). These are words of **political framing**, not markers of factual error. In the unified model, the fake-news output reacts most to polarising compounds and hashtags in a post about migration policy: *„linksgrünen“*, *„Gutmenschen“*, *#Deutschland*, *„zerstören“*.
+
+**Hate speech.** The XLM-R attributions on GAHD are an order of magnitude smaller (mean |SHAP| ≈ 0.002, vs. about 0.05–0.10 for fake news). The top-ranked pieces are function words, punctuation and harmless content words (*„Ich“*, *„schön“*, *„Morgen“*). For the implicit antisemitic post *„Ich mag Sterne … Nur Judensterne nicht“*, the evidence is spread over the whole sentence; no single slur exists to attach it to. This is exactly what GAHD's adversarial design aims for: the model cannot rely on lexical shortcuts, and when it is right, it is right because of composition and context. The lack of a dominant cue also explains why hate speech is the hardest task for every fine-tuned model.
+
+**Toxicity.** The mBERT model attributes the largest positive value in a vulgar COVID-protest rant to *„Querdenker“* (the name of the anti-lockdown movement), more than to *„bekloppt“*. The explicit insult *„Scheiß(land)“* even pushes *against* toxicity. The model has learned a **topic shortcut**: in GermEval-style data, posts about the Querdenker debate are disproportionately toxic. Such cues hold within the dataset but fail on calm posts about the same topic, and they risk penalising a political topic instead of an abusive tone.
+
+**Adversarial probing.** The unified model was also tested on hand-written German posts that separate factual falsity, hostility and group-targeting:
 
 | Input (German) | Gold intuition | Prediction (F / H / T) |
 |---|---|---|
@@ -179,7 +189,7 @@ SHAP attributions for the DistilBERT fake-news model rank tokens such as *„tri
 
 *Table 5: Selected adversarial errors of the unified model (F = fake news, H = hate speech, T = toxicity).*
 
-The model misses a calm, declarative conspiracy claim, yet flags aggressive political statements as "fake". It has learned that **polarised, us-versus-them language** signals disinformation.
+The model misses a calm, declarative conspiracy claim, yet flags aggressive political statements as "fake". It has learned that **polarised, us-versus-them language** signals disinformation. Its hate and toxicity heads are also confused. A group-targeted demand to ban a language is caught as hate but not as toxic. A dehumanising statement about a minority is caught as hate but also mislabelled as fake. Across all three tasks, then, the models detect *registers* (polarised, hostile, topical) more reliably than the harm each label is meant to capture.
 
 ---
 
@@ -189,29 +199,36 @@ The model misses a calm, declarative conspiracy claim, yet flags aggressive poli
 
 The results fit the transfer-versus-interference view of MTL. Toxicity and hate speech share surface features (insults, slurs, aggressive syntax), so a shared encoder trained on both gets more evidence for "hostile language" and toxicity improves. Fake news in DeFaktS depends on different cues: topic, framing, hedging, missing sources, links. When one encoder is optimised for all three objectives, the hostility signal dominates its representation, and the fake-news head inherits a feature space tuned for abuse. The adversarial errors show this directly: hostile posts leak into the fake-news head.
 
-Two further factors probably widen the fake-news gap. First, the single-task model used a full DeFaktS Twitter split, while the unified model saw a 5,000-tweet subset. Second, there may be train/test leakage in the single-task result (Section 6.3). Both inflate the specialist's advantage. The true gap is likely smaller than 6 points.
+Two further factors probably widen the fake-news gap. First, the single-task model used a full DeFaktS Twitter split, while the unified model saw a 5,000-tweet subset. Second, there may be train/test leakage in the single-task result (Section 6.4). Both inflate the specialist's advantage. The true gap is likely smaller than 6 points.
 
 **For practitioners (RQ1):** a unified model is a strong default when cost or latency matters. It loses little on average and gains on tasks with shared signals. A dedicated model is worth keeping for the task that is least like the others, which here is disinformation. Methods that soften interference, such as task-specific adapters, loss re-weighting, or gradient surgery, are natural next steps.
 
-### 6.2 Why LLMs struggle with DeFaktS but not with hate speech
+### 6.2 Hate speech and toxicity: hard boundaries, different shortcuts
+
+Hate speech and toxicity look alike but behave differently. On GAHD, every fine-tuned model stays below 79%, and the unified model barely changes the score (−2 points). Adversarial data removes the lexical shortcuts that make other hate-speech benchmarks look easy (Röttger et al., 2021), so shared toxicity features cannot help much: much of GAHD's hate contains no insult at all. Telling *„Ich liebe Inder“* from *„Jeder weiß, dass Chinesen …“* requires knowing which statements about a group are demeaning, which is world knowledge more than surface form.
+
+Toxicity is the opposite case. Its labels correlate with surface features (vulgarity, exclamation, insults) *and* with topics, so a shared encoder trained alongside hate speech sharpens a useful "hostility" representation. This explains the +2.3-point multi-task gain. The topic shortcut found by SHAP (*„Querdenker“*) is the risk on this side: toxicity models trained on debate comments may mark entire political discussions as toxic. Both tasks therefore call for evaluation beyond aggregate accuracy, with balanced counter-examples that mention identity groups or contested topics in a neutral tone.
+
+### 6.3 Why LLMs struggle with DeFaktS but not with hate speech
 
 Hate speech has a widely shared definition, so an instruction-tuned LLM can apply it from a prompt. "Disinformation" in DeFaktS is a *dataset-specific construct*: a pattern of framing identified by annotators under a particular codebook. Without labelled examples, the LLM falls back on its own idea of fake news, namely *factual falsehood*. Short tweets offer it little to check, and many framed but factually unremarkable posts carry the "fake" label. Fine-tuned encoders learn the annotators' construct directly from thousands of examples. This also explains why few-shot examples help so much: they partly convey the construct.
 
 The broader lesson for RQ3 is that **prompting suits tasks with a stable, shared definition; fine-tuning suits tasks defined by an annotation scheme.** A promising middle ground, left for future work, is to use the LLM to *produce* fine-grained framing indicators (polarisation, vagueness, missing sources, as in the original project proposal) as features for a lightweight classifier.
 
-### 6.3 Methodological pitfalls we found
+### 6.4 Methodological pitfalls we found
 
 Re-implementing the pipeline (code released with this paper) turned up issues that affect the reported numbers. Each is common enough in applied NLP to be worth naming.
 
-1. **Oversampling before splitting.** The fake-news notebook oversampled the minority class *and then* split into train and test. Duplicated tweets therefore appear on both sides, and the model is partly tested on examples it has memorised. This is a textbook case of *data leakage* (Kaufman et al., 2012), which Kapoor and Narayanan (2023) identify as a widespread cause of irreproducible machine-learning results. The fix is to split first and rebalance only the training data; our implementation also removes exact duplicates and tweets with conflicting labels.
-2. **Model selection on the test set.** Early stopping and "best checkpoint" selection used the evaluation split that was later reported as the test result. This biases the score upwards. The corrected pipeline uses separate train, validation and test splits and evaluates on the test split once.
-3. **Missing labels in text-to-text training.** For T5, the −1 placeholder was written into the target string ("fake_news: -1 …"). The model was literally trained to *generate* "-1" for two of the three tasks in every example, and evaluation did not exclude those rows. In addition, padding tokens in the targets were not masked from the loss, and the learning-rate schedule was configured for 7 epochs but training stopped after 4. Together, these issues (not the encoder-decoder architecture itself) best explain T5's weak results. A fair rerun would emit only the annotated task in each target, or prefix the input with the task name, T5-style.
-4. **Silent defaults in LLM parsing.** Unparseable LLM answers were mapped to class 0. This inflates accuracy on balanced data whenever a model fails to follow the format, and makes models less comparable. Invalid answers should be reported separately.
-5. **Metric reporting.** One table cell reported an F1 above both precision and recall, which is mathematically impossible. Automatically generated result tables avoid such transcription errors.
+1. **Oversampling before splitting.** The fake-news and hate-speech notebooks oversampled the minority class *and then* split into train and test. Duplicated tweets therefore appear on both sides, and the model is partly tested on examples it has memorised. This is a textbook case of *data leakage* (Kaufman et al., 2012), which Kapoor and Narayanan (2023) identify as a widespread cause of irreproducible machine-learning results. The fix is to split first and rebalance only the training data; our implementation also removes exact duplicates and tweets with conflicting labels.
+2. **Model selection on the test set.** In all three single-task models, early stopping and "best checkpoint" selection used the evaluation split that was later reported as the test result. This biases the score upwards. The corrected pipeline uses separate train, validation and test splits and evaluates on the test split once.
+3. **Destructive cleaning.** Lowercasing GAHD and deleting all digits, punctuation and emojis removed real signal (sarcasm emojis, German noun capitalisation, quotation marks that signal irony). It also made hate-speech preprocessing inconsistent with the other two tasks. Cased transformer tokenizers need no such normalisation.
+4. **Missing labels in text-to-text training.** For T5, the −1 placeholder was written into the target string ("fake_news: -1 …"). The model was literally trained to *generate* "-1" for two of the three tasks in every example, and evaluation did not exclude those rows. In addition, padding tokens in the targets were not masked from the loss, and the learning-rate schedule was configured for 7 epochs but training stopped after 4. The English-only `t5-base` vocabulary is also a poor fit for German. Together, these issues (not the encoder-decoder architecture itself) best explain T5's weak results. The released code therefore builds one task-prefixed example per *labelled* task ("hate_speech: … → 1"), masks target padding, and uses multilingual mT5.
+5. **Silent defaults in LLM parsing.** Unparseable LLM answers were mapped to class 0. This inflates accuracy on balanced data whenever a model fails to follow the format, and makes models less comparable. Invalid answers should be reported separately.
+6. **Metric reporting.** One table cell reported an F1 above both precision and recall, which is mathematically impossible. Automatically generated result tables avoid such transcription errors.
 
-None of these issues changes the qualitative conclusions. They do mean the exact numbers in Tables 2 to 4 should be read as optimistic for the single-task fake-news model and pessimistic for T5.
+None of these issues changes the qualitative conclusions. They do mean the exact numbers in Tables 2 to 4 should be read as optimistic for the single-task fake-news and hate-speech models and pessimistic for T5.
 
-### 6.4 Combined detection and healthier discourse (RQ2)
+### 6.5 Combined detection and healthier discourse (RQ2)
 
 Combined detection gives a richer signal than three separate binary flags. A post that is both *framed as disinformation* and *hateful* is a different moderation case from one that is merely rude. Joint outputs support graduated responses: adding context labels or fact-check links for disinformation, de-ranking toxic replies, and escalating group-targeted hate for human review. A single shared model also lowers the cost of screening at scale.
 
@@ -229,7 +246,7 @@ The data contains real social media posts, some of them hateful. Sharing it must
 
 - **Single runs and small test sets.** No confidence intervals or significance tests are reported. Several differences (for example, hate speech 78% vs. 76%) are within plausible run-to-run variance.
 - **Unequal data.** The single-task and unified fake-news models saw different amounts of DeFaktS data.
-- **Leakage.** The single-task fake-news figure needs re-running with the leakage-safe pipeline. The released code does this by default.
+- **Leakage.** The single-task fake-news and hate-speech figures need re-running with the leakage-safe pipeline. The released code does this by default for all three tasks.
 - **Binary labels only.** DeFaktS's fine-grained framing categories were not used. Predicting them, or using LLM-extracted indicators, could make the fake-news task both more accurate and more interpretable.
 - **Architectures.** Stronger German encoders (GBERT-large, GELECTRA), adapter-based MTL, and instruction-tuned open LLMs fine-tuned with LoRA would give a fairer comparison of paradigms.
 - **Deployment.** Latency optimisation, multilingual extension and evaluation with real moderators remain future work.
@@ -238,7 +255,7 @@ The data contains real social media posts, some of them hateful. Sharing it must
 
 ## 9. Conclusion
 
-We reviewed four paradigms for detecting fake news, hate speech and toxicity, and compared them on German social media data. There is no single winner. Specialised encoders are most accurate on the task least like the others (disinformation, 91%). A unified multi-task BERT is nearly as good on average and best on toxicity (91%), with a third of the serving cost. Prompted LLMs are competitive only where the task definition is universal (hate speech, 79%). The fake-news analysis shows that "disinformation detection" on framing-annotated data is really *framing detection*, which shapes both what models can achieve and how they should be used. Finally, the methodological lessons (leakage-safe splitting, a clean validation protocol, careful handling of missing labels, and honest reporting of invalid outputs) matter as much as the architecture choice. The corrected implementation is available at <https://github.com/farhanaliarshad1/german-harmful-content-detection>.
+We reviewed four paradigms for detecting fake news, hate speech and toxicity, and compared them on German social media data. There is no single winner. Specialised encoders are most accurate on the task least like the others (disinformation, 91%). A unified multi-task BERT is nearly as good on average and best on toxicity (91%), with a third of the serving cost. Prompted LLMs are competitive only where the task definition is universal (hate speech, 79%). The explainability analysis shows that every model learns dataset-specific registers. "Disinformation detection" on framing-annotated data is really *framing detection*, toxicity models pick up contested *topics*, and adversarial hate speech resists lexical shortcuts altogether. This shapes both what models can achieve and how they should be used. Finally, the methodological lessons (leakage-safe splitting, a clean validation protocol, careful handling of missing labels, and honest reporting of invalid outputs) matter as much as the architecture choice. The corrected implementation is available at <https://github.com/farhanaliarshad1/german-harmful-content-detection>.
 
 **Recommendation:** use single-task models where accuracy on one harm is critical, multi-task models where efficiency across harms matters, and LLM prompting for rapid prototyping and for tasks with clear, shared definitions.
 
@@ -246,7 +263,7 @@ We reviewed four paradigms for detecting fake news, hate speech and toxicity, an
 
 ## Acknowledgements
 
-This work was carried out as a team project in the Research Case Studies course at Universität Trier, within the TWON research context. I thank my teammates Aastha Shreya, Shivang Sinha, Syed Huzaifa Ali, Donya Sheikhi and Muhammad Ahmed, whose implementation of the individual, unified, T5 and prompting experiments produced the results reviewed here. The original team repository is available at <https://github.com/Aastha031295/TWON_Metrics>.
+This work was carried out as a team project in the Research Case Studies course at Universität Trier, within the TWON research context. I thank my fellow students Aastha Shreya, Shivang Sinha, Syed Huzaifa Ali, Donya Sheikhi and Muhammad Ahmed for the collaboration on the experiments reviewed here. The original team repository is available at <https://github.com/Aastha031295/TWON_Metrics>.
 
 ---
 

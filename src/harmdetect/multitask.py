@@ -5,7 +5,7 @@ DeFaktS, hate speech from GAHD, toxicity from DeTox); the others are -1. The
 loss for a head is computed only on rows where that task is labelled.
 
 Usage:
-    python -m fakenews.multitask --data data/merged_dataset.csv --epochs 3
+    python -m harmdetect.multitask --data data/merged_dataset.csv --epochs 3
 """
 
 from __future__ import annotations
@@ -24,9 +24,9 @@ from torch import nn
 from torch.utils.data import DataLoader, Dataset
 from transformers import AutoModel, AutoTokenizer, DataCollatorWithPadding, get_linear_schedule_with_warmup, set_seed
 
-from fakenews.data import clean_text
+from harmdetect.data import clean_text
 
-logger = logging.getLogger("fakenews.multitask")
+logger = logging.getLogger("harmdetect.multitask")
 TASKS = ["isFake", "isHateSpeech", "isToxic"]
 
 

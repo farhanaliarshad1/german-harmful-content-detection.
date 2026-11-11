@@ -1,0 +1,18 @@
+# Hate speech: GAHD (German Adversarial Hate speech Dataset, ~11k, 58/42)
+task: hate_speech
+label_names: [not_hate, hate]
+data_path: data/hateSpeech.csv
+text_col: text
+label_col: label
+balance: class_weight
+
+model_name: xlm-roberta-base
+max_length: 128
+epochs: 5
+batch_size: 16
+learning_rate: 3.0e-5
+weight_decay: 0.01
+warmup_ratio: 0.1
+early_stopping_patience: 2
+seed: 42
+output_dir: outputs/hate_speech-xlmr

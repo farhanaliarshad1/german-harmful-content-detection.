@@ -1,8 +1,10 @@
-"""Fine-tune a German transformer for fake-news (disinformation) detection on DeFaktS.
+"""Fine-tune a transformer for one harmful-content task (fake news, hate speech or toxicity).
 
 Usage:
-    python -m fakenews.train --config configs/distilbert_german.yaml
-    python -m fakenews.train --config configs/distilbert_german.yaml --model_name deepset/gbert-base
+    python -m harmdetect.train --config configs/fake_news_distilbert.yaml
+    python -m harmdetect.train --config configs/hate_speech_xlmr.yaml
+    python -m harmdetect.train --config configs/toxicity_mbert.yaml
+    python -m harmdetect.train --config configs/fake_news_distilbert.yaml --model_name deepset/gbert-base
 """
 
 from __future__ import annotations
@@ -24,21 +26,21 @@ from transformers import (
     set_seed,
 )
 
-from fakenews.config import TrainConfig
-from fakenews.data import load_defakts, oversample_minority, split_data
-from fakenews.modeling import TextClassificationDataset, WeightedLossTrainer, class_weights, compute_metrics
+from harmdetect.config import TrainConfig
+from harmdetect.data import load_binary_csv, oversample_minority, split_data
+from harmdetect.modeling import TextClassificationDataset, WeightedLossTrainer, class_weights, compute_metrics
 
-logger = logging.getLogger("fakenews.train")
-LABELS = {0: "neutral", 1: "fake"}
+logger = logging.getLogger("harmdetect.train")
 
 
 def run(cfg: TrainConfig) -> dict:
     set_seed(cfg.seed)
+    labels = dict(enumerate(cfg.label_names))
     out = Path(cfg.output_dir)
     out.mkdir(parents=True, exist_ok=True)
 
     # ---- data ---------------------------------------------------------------
-    df = load_defakts(cfg.data_path, cfg.text_col, cfg.label_col)
+    df = load_binary_csv(cfg.data_path, cfg.text_col, cfg.label_col)
     splits = split_data(df, cfg.val_size, cfg.test_size, cfg.seed)
     train_df = splits.train
     if cfg.max_train_samples:
@@ -46,12 +48,12 @@ def run(cfg: TrainConfig) -> dict:
     if cfg.balance == "oversample":
         train_df = oversample_minority(train_df, cfg.seed)
     weights = class_weights(train_df["label"]) if cfg.balance == "class_weight" else None
-    logger.info("train=%d val=%d test=%d | balance=%s", len(train_df), len(splits.val), len(splits.test), cfg.balance)
+    logger.info("[%s] train=%d val=%d test=%d | balance=%s", cfg.task, len(train_df), len(splits.val), len(splits.test), cfg.balance)
 
     # ---- model --------------------------------------------------------------
     tokenizer = AutoTokenizer.from_pretrained(cfg.model_name)
     model = AutoModelForSequenceClassification.from_pretrained(
-        cfg.model_name, num_labels=2, id2label=LABELS, label2id={v: k for k, v in LABELS.items()}
+        cfg.model_name, num_labels=2, id2label=labels, label2id={v: k for k, v in labels.items()}
     )
     make_ds = lambda d: TextClassificationDataset(d["text"], d["label"], tokenizer, cfg.max_length)  # noqa: E731
     train_ds, val_ds, test_ds = make_ds(train_df), make_ds(splits.val), make_ds(splits.test)
@@ -100,7 +102,7 @@ def run(cfg: TrainConfig) -> dict:
         "test_metrics": metrics,
         "confusion_matrix": confusion_matrix(y_true, y_pred).tolist(),
         "classification_report": classification_report(
-            y_true, y_pred, target_names=list(LABELS.values()), output_dict=True, zero_division=0
+            y_true, y_pred, target_names=list(labels.values()), output_dict=True, zero_division=0
         ),
     }
 

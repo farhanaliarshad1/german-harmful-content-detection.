@@ -10,6 +10,10 @@ import yaml
 
 @dataclass
 class TrainConfig:
+    # task
+    task: str = "fake_news"
+    label_names: tuple = ("neutral", "fake")
+
     # data
     data_path: str = "data/fake_news.csv"
     text_col: str = "text"
@@ -45,6 +49,8 @@ class TrainConfig:
         unknown = set(values) - known
         if unknown:
             raise ValueError(f"Unknown config keys: {sorted(unknown)}")
+        if "label_names" in values:
+            values["label_names"] = tuple(values["label_names"])
         cfg = cls(**values)
         if cfg.balance not in {"none", "class_weight", "oversample"}:
             raise ValueError(f"balance must be none|class_weight|oversample, got {cfg.balance!r}")

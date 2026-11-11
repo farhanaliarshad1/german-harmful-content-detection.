@@ -1,0 +1,18 @@
+# Toxicity: DeTox / GermEval 2018 + 2021 (German comments, balanced)
+task: toxicity
+label_names: [non_toxic, toxic]
+data_path: data/toxicity.csv
+text_col: text
+label_col: toxic
+balance: none                  # already balanced 50/50
+
+model_name: bert-base-multilingual-cased
+max_length: 128
+epochs: 10
+batch_size: 32
+learning_rate: 5.0e-6          # small LR + longer schedule was most stable for mBERT
+weight_decay: 0.01
+warmup_ratio: 0.1
+early_stopping_patience: 2
+seed: 42
+output_dir: outputs/toxicity-mbert

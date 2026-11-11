@@ -1,8 +1,19 @@
-"""DeFaktS data pipeline: loading, cleaning, leakage-safe splitting and balancing.
+"""Data pipeline shared by all tasks: loading, cleaning, leakage-safe splitting, balancing.
 
-The DeFaktS corpus (German tweets annotated for disinformation framing) is loaded
-from a CSV with a text column and a binary label column (1 = fake/disinformation,
-0 = neutral). All cleaning keeps casing because the downstream model is cased.
+Every task is a binary text-classification CSV (1 = harmful, 0 = not harmful):
+
+=============  =========================  ============  =================
+task           dataset                    text column   label column
+=============  =========================  ============  =================
+fake_news      DeFaktS (German tweets)    text          binary_label
+hate_speech    GAHD (adversarial German)  text          label
+toxicity       DeTox / GermEval 2018+21   text          toxic
+=============  =========================  ============  =================
+
+Cleaning is deliberately light: casing, punctuation, digits and emojis are kept
+because German capitalisation and emoji/punctuation carry signal (e.g. sarcasm
+markers in hate speech). Only links, mentions, HTML entities and whitespace are
+normalised.
 """
 
 from __future__ import annotations
@@ -39,8 +50,8 @@ def clean_text(text: str) -> str:
     return WHITESPACE_RE.sub(" ", text).strip()
 
 
-def load_defakts(path: str, text_col: str = "text", label_col: str = "binary_label") -> pd.DataFrame:
-    """Load and clean DeFaktS. Returns a frame with columns ``text`` and ``label``."""
+def load_binary_csv(path: str, text_col: str = "text", label_col: str = "label") -> pd.DataFrame:
+    """Load and clean a binary classification CSV. Returns columns ``text`` and ``label``."""
     raw = pd.read_csv(path)
     missing = {text_col, label_col} - set(raw.columns)
     if missing:
@@ -104,3 +115,8 @@ def oversample_minority(train: pd.DataFrame, seed: int = 42) -> pd.DataFrame:
         extra = minority.sample(counts.max() - n, replace=True, random_state=seed)
         parts.extend([minority, extra])  # keep every original row, add random duplicates
     return pd.concat(parts).sample(frac=1.0, random_state=seed).reset_index(drop=True)
+
+
+# backwards-compatible alias
+def load_defakts(path: str, text_col: str = "text", label_col: str = "binary_label") -> pd.DataFrame:
+    return load_binary_csv(path, text_col, label_col)

@@ -1,8 +1,8 @@
-"""Run a trained fake-news classifier on raw text or a CSV file.
+"""Run a trained classifier (any task) on raw text or a CSV file.
 
 Usage:
-    python -m fakenews.predict --model outputs/distilbert-german-defakts/model --text "Die Regierung verschweigt die Wahrheit!"
-    python -m fakenews.predict --model outputs/.../model --csv posts.csv --out predictions.csv
+    python -m harmdetect.predict --model outputs/fake_news-distilbert-german/model --text "Die Medien verschweigen euch die Wahrheit!"
+    python -m harmdetect.predict --model outputs/hate_speech-xlmr/model --csv posts.csv --out predictions.csv
 """
 
 from __future__ import annotations
@@ -13,19 +13,22 @@ import pandas as pd
 import torch
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-from fakenews.data import clean_text
+from harmdetect.data import clean_text
 
 
-class FakeNewsClassifier:
+class HarmClassifier:
+    """Thin inference wrapper around a fine-tuned binary sequence classifier."""
+
     def __init__(self, model_dir: str, device: str | None = None, max_length: int = 128):
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         self.tokenizer = AutoTokenizer.from_pretrained(model_dir)
         self.model = AutoModelForSequenceClassification.from_pretrained(model_dir).to(self.device).eval()
         self.max_length = max_length
+        self.positive_label = self.model.config.id2label.get(1, "harmful")
 
     @torch.inference_mode()
     def predict_proba(self, texts: list[str], batch_size: int = 32) -> list[float]:
-        """Probability that each text is fake news / disinformation."""
+        """Probability of the positive (harmful) class for each text."""
         probs: list[float] = []
         for i in range(0, len(texts), batch_size):
             batch = [clean_text(t) for t in texts[i : i + batch_size]]
@@ -46,14 +49,16 @@ def main() -> None:
     p.add_argument("--threshold", type=float, default=0.5)
     a = p.parse_args()
 
-    clf = FakeNewsClassifier(a.model)
+    clf = HarmClassifier(a.model)
+    pos = clf.positive_label
     if a.text:
         prob = clf.predict_proba([a.text])[0]
-        print(f"{'FAKE' if prob >= a.threshold else 'NEUTRAL'}  (p_fake={prob:.3f})")
+        verdict = pos.upper() if prob >= a.threshold else "NOT " + pos.upper()
+        print(f"{verdict}  (p_{pos}={prob:.3f})")
         return
     df = pd.read_csv(a.csv)
-    df["p_fake"] = clf.predict_proba(df[a.text_col].astype(str).tolist())
-    df["is_fake_pred"] = (df["p_fake"] >= a.threshold).astype(int)
+    df[f"p_{pos}"] = clf.predict_proba(df[a.text_col].astype(str).tolist())
+    df[f"{pos}_pred"] = (df[f"p_{pos}"] >= a.threshold).astype(int)
     df.to_csv(a.out, index=False)
     print(f"Wrote {len(df)} predictions to {a.out}")
 
