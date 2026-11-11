@@ -1,0 +1,9 @@
+# Stronger German encoder (deepset GBERT) for comparison
+data_path: data/fake_news.csv
+balance: class_weight
+model_name: deepset/gbert-base
+max_length: 128
+epochs: 4
+batch_size: 16
+learning_rate: 2.0e-5
+output_dir: outputs/gbert-base-defakts
