@@ -7,7 +7,7 @@
 ![Transformers](https://img.shields.io/badge/Hugging%20Face%20Transformers-4.46%2B-informational)
 ![License](https://img.shields.io/badge/License-MIT-informational)
 
-**Paper:** [Review paper (PDF, 8 pages)](docs/review_paper.pdf) · [Markdown](docs/review_paper.md) · [Word](docs/review_paper.docx)
+**Paper:** [Review paper (PDF, 8 pages)](docs/review_paper.pdf) · [Markdown](docs/review_paper.md)
 
 ---
 

@@ -15,3 +15,6 @@ data/*.csv
 outputs/
 *.pt
 *.safetensors
+
+# generated Word version of the paper (PDF is the published version)
+docs/review_paper.docx
