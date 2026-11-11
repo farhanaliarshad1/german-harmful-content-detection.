@@ -21,26 +21,26 @@ This project builds and compares four modelling paradigms for detecting all thre
 |---|---|---|---|
 | 1 | Single-task fine-tuning | DistilBERT-German, XLM-RoBERTa, mBERT | one specialist encoder per harm |
 | 2 | Unified multi-task BERT | bert-base-german-cased with 3 heads | one shared encoder, masked multi-task loss |
-| 3 | Unified text-to-text | T5 / mT5 | all tasks as generation |
+| 3 | Unified text-to-text | t5-base (experiments), mT5 (this repository) | all tasks as generation |
 | 4 | LLM prompting | Llama 3.1 / 3.3, Mistral, Phi-4, GPT-4o-mini | zero- and few-shot, no training |
 
-**Research questions**
+**Research questions** (paper, Section 1)
 
-- **RQ1.** Do separate models per task outperform one unified multi-task model?
-- **RQ2.** What does combined detection teach us about healthier online discourse?
-- **RQ3.** How do encoder, encoder-decoder and decoder-only (LLM) architectures compare?
+- **RQ1.** How do separate transformer models, each trained on one task, compare with a single unified model trained on all three tasks?
+- **RQ2.** What can be concluded from combined detection, and how can it contribute to healthier online discourse?
+- **RQ3.** How do encoder, encoder-decoder and decoder-only architectures compare on these tasks?
 
 ---
 
 ## Datasets
 
-All three corpora are German. Details and download instructions: [`data/README.md`](data/README.md).
+All three corpora are German (paper, Section 3, Table 1). Details and download instructions: [`data/README.md`](data/README.md).
 
 | Task | Dataset | Size | Class balance | Main difficulty |
 |---|---|---|---|---|
-| Fake news / disinformation | [DeFaktS](https://aclanthology.org/2024.lrec-main.409/): German tweets annotated for disinformation framing | 5,000 | 50 / 50 | labels a framing style, not factual falsity |
+| Fake news / disinformation | [DeFaktS](https://aclanthology.org/2024.lrec-main.409/): German tweets annotated for disinformation framing | 5,000 (unified); full Twitter split for single-task | 50 / 50 | labels a framing style, not factual falsity |
 | Hate speech | [GAHD](https://aclanthology.org/2024.naacl-long.248): German Adversarial Hate speech Dataset | 10,996 | 58 / 42 | adversarially written, often implicit hate |
-| Toxicity | DeTox and GermEval 2018 / 2021 comments | 5,000 | 50 / 50 | rudeness vs. heated but legitimate debate |
+| Toxicity | DeTox and GermEval 2018 / 2021 comments | 5,000 | 50 / 50 | rude language appears in both classes, so the boundary is fuzzy |
 | Unified | all three merged; each row labelled for one task, `-1` elsewhere | 15,000 | 5,000 per task | partially labelled multi-task data |
 
 <details>
@@ -89,7 +89,7 @@ All paths are scored with the same metrics (accuracy, precision, recall, F1). In
 
 ## Results
 
-Accuracy and F1 on held-out test data (see the [paper](docs/review_paper.pdf) for precision and recall):
+Accuracy and F1 on held-out test data, from Tables 2 and 3 of the [paper](docs/review_paper.pdf) (precision and recall are reported there). The unified BERT fake-news F1 is omitted because the originally reported value (85) is mathematically impossible given its precision (81) and recall (84). These are single runs from the original experiments; see the methodological lessons below.
 
 | Paradigm | Model | Fake news | Hate speech | Toxicity | Avg. accuracy |
 |---|---|---|---|---|---|
@@ -118,15 +118,17 @@ Accuracy and F1 on held-out test data (see the [paper](docs/review_paper.pdf) fo
 
 ## Key findings
 
-1. **No single winner.** Specialist models are best on fake news, the unified model is best on toxicity, and few-shot LLMs are narrowly best on hate speech.
-2. **Fake news needs a specialist.** The unified model loses 6 points (91% vs. 85%). Disinformation cues (framing, sensationalism, missing sources) differ from abuse cues, and a shared encoder dilutes them (task interference).
-3. **Toxicity benefits from sharing.** Toxicity and hate speech share surface features such as insults and slurs, so multi-task training transfers positively (91% vs. 88.7%) with one encoder instead of three.
-4. **Hate speech is the hardest task for fine-tuned models.** GAHD is adversarial, and much of its hate is implicit („Nur Judensterne nicht“). LLMs with broad world knowledge match the encoders here (79% vs. 78%).
-5. **LLMs need demonstrations.** A few German examples add 19 to 33 points to GPT-4o-mini. LLMs still trail fine-tuned encoders by about 31 points on fake news, because DeFaktS's "disinformation" is an annotation-defined framing style rather than a general concept.
-6. **SHAP reveals shortcut learning.** The fake-news model relies on framing words („trigger“, „liberal“). The toxicity model relies more on the topic word „Querdenker“ than on the insult „Scheiß“. The models learn dataset-specific cues, not the harm itself.
-7. **Adversarial probing exposes failure modes.** The unified model misses calm conspiracy claims („Die Erde ist tatsächlich flach …“) and flags hostile political statements as fake news.
+1. **No single winner** (Sections 5.3 and 9). Specialist models are best on fake news, the unified model is best on toxicity, and few-shot GPT-4o-mini is narrowly best on hate speech.
+2. **Fake news favours a specialist** (Sections 5.1 and 6.1). The unified model scores 6 points lower (91% vs. 85%). Fake news in DeFaktS depends on different cues (topic, framing, hedging, missing sources, links) than abuse, and in a shared encoder the hostility signal dominates. The paper notes the true gap is likely smaller, because the single-task model saw more data and may be affected by leakage.
+3. **Toxicity benefits from sharing** (Section 6.2). Toxicity and hate speech share surface features such as insults and slurs, so multi-task training gains 2.3 points (91% vs. 88.7%) with one encoder instead of three.
+4. **Hate speech is the hardest task for every fine-tuned model** (Sections 5.1 and 6.2). GAHD is adversarial and much of its hate is implicit („Nur Judensterne nicht“). Because hate speech has a widely shared definition, few-shot GPT-4o-mini matches the encoders here (79% vs. 78.1%).
+5. **LLMs need demonstrations** (Sections 5.2 and 6.3). Two German examples per task raise GPT-4o-mini by 19 to 33 points. The best LLM still falls 31 points short on fake news, because DeFaktS's "disinformation" is an annotation-defined framing construct rather than factual falsehood.
+6. **SHAP reveals shortcut learning** (Section 5.4). The fake-news model's strongest cues are political framing words („trigger“, „liberal“). The toxicity model attributes most to the topic word „Querdenker“, more than to „bekloppt“, while the insult „Scheiß(land)“ even pushes against toxicity. Hate-speech attributions are small and spread over the whole sentence.
+7. **Adversarial probing exposes failure modes** (Section 5.4, Table 5). The unified model misses a calm conspiracy claim („Die Erde ist tatsächlich flach …“) and flags aggressive political statements as fake news.
 
 ### Methodological lessons, fixed in this repository
+
+Rows 1 to 5 correspond to Section 6.4 of the paper; the last row is a code-quality fix found in the original code.
 
 | Pitfall in the original experiments | Effect | Fix |
 |---|---|---|
@@ -183,10 +185,13 @@ Every run writes `metrics.json` (configuration, split sizes, test metrics, confu
 
 ## Future work
 
-- Re-run all single-task models with the leakage-safe pipeline and report mean and standard deviation over several seeds.
+From Section 8 of the paper:
+
+- Re-run the single-task models with the leakage-safe pipeline, and report confidence intervals or significance tests instead of single runs.
 - Predict DeFaktS's fine-grained framing indicators (polarisation, vagueness, missing sources) instead of a binary label.
-- Reduce task interference with adapters, loss re-weighting or gradient surgery.
-- Fine-tune an open LLM with LoRA on the merged corpus, and add HateCheck-style functional tests for German.
+- Reduce task interference with task-specific adapters, loss re-weighting or gradient surgery (Section 6.1).
+- Compare stronger German encoders (GBERT-large, GELECTRA) and open LLMs fine-tuned with LoRA.
+- Make hand-written adversarial tests part of standard evaluation, in the spirit of HateCheck (Section 7).
 
 ## Acknowledgements
 
