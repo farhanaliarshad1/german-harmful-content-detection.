@@ -79,7 +79,7 @@ Moderation decisions affect speech, so explanations matter for trust and debuggi
 
 **The three corpora.** *DeFaktS* tweets are short, topical (politics, climate, the 2021 Ahr flood, COVID-19) and full of hashtags and links; a "fake" label marks a post that uses disinformation framing. *GAHD* was collected over four rounds of human-versus-model adversarial writing. Its hateful examples are often implicit, for example *„Ich mag Sterne. Morgensterne, Abendsterne, Filmsternchen … Nur Judensterne nicht“*, and its non-hateful examples deliberately mention identity groups (*„Ich liebe Inder“*), so identity terms alone are not predictive. The *DeTox/GermEval* comments are long, heated replies from news and political discussions. Rude language (*„Scheißland“*, *„bekloppt“*) appears in both classes, which makes the toxic/non-toxic boundary fuzzy.
 
-**Preprocessing.** In the original experiments, DeFaktS URLs were replaced by a `[URL]` token, and DeTox rows with missing text or labels were dropped. GAHD was lowercased and stripped of all digits, punctuation and emojis. The unified corpus additionally had e-mail addresses removed and emojis replaced. Minority classes were upsampled for DeFaktS and GAHD. The corrected pipeline applies the same *light* cleaning to every task: HTML unescaping, `[URL]` and `@user` placeholders, and whitespace normalisation. It keeps case (German capitalises all nouns), punctuation and emojis, because these carry signal such as sarcasm markers (🤥) in hate speech.
+**Preprocessing.** In the original experiments, DeFaktS URLs were replaced by a `[URL]` token, and DeTox rows with missing text or labels were dropped. GAHD was lowercased and stripped of all digits, punctuation and emojis. The unified corpus additionally had e-mail addresses removed and emojis replaced. Minority classes were upsampled for DeFaktS and GAHD. The corrected pipeline applies the same *light* cleaning to every task: HTML unescaping, `[URL]` and `@user` placeholders, and whitespace normalisation. It keeps case (German capitalises all nouns), punctuation and emojis, because these carry signal such as sarcasm markers in hate speech.
 
 **Heterogeneity.** The three sources differ in genre, time period, annotation guidelines and length. GAHD's adversarial examples are deliberately subtle, while DeFaktS tweets are short, topical and full of hashtags and links. In the merged corpus, a model can partly infer *which dataset* a post comes from by its style, a shortcut we return to in Section 6.
 
@@ -181,9 +181,9 @@ SHAP was applied to each single-task model on random test posts and to the unifi
 
 | Input (German) | Gold intuition | Prediction (F / H / T) |
 |---|---|---|
-| *Die Erde ist tatsächlich flach, alles andere ist eine Lüge der Wissenschaft.* | fake | 0 / 0 / 0 ✗ |
-| *Diese Region sollte abgeschnitten und sich selbst überlassen werden.* | hostile, not fake | 1 / 0 / 0 ✗ |
-| *Die Anhänger dieser Partei sind alle Idioten und gehören eingesperrt.* | toxic, not fake | 1 / 0 / 1 ✗ |
+| *Die Erde ist tatsächlich flach, alles andere ist eine Lüge der Wissenschaft.* | fake | 0 / 0 / 0 (wrong) |
+| *Diese Region sollte abgeschnitten und sich selbst überlassen werden.* | hostile, not fake | 1 / 0 / 0 (wrong) |
+| *Die Anhänger dieser Partei sind alle Idioten und gehören eingesperrt.* | toxic, not fake | 1 / 0 / 1 (wrong) |
 | *Diese Minderheit zerstört unser Land mit ihrer Kultur.* | hate | 1 / 1 / 0 (partial) |
 | *Diese Sprache sollte in unserem Land verboten werden.* | hate + toxic | 0 / 1 / 0 (partial) |
 
